@@ -34,7 +34,6 @@ function hosting_advanced_cron_hosting_site_count() {
     AND ((hac.cron_interval IS NOT NULL AND hac.cron_interval > 0)
     OR (hac.cron_interval IS NULL AND :cron_interval > 0))";
   $result = db_query($sql, array(':site' => 'site', ':status' => HOSTING_SITE_ENABLED, ':cron_interval' => variable_get('hosting_advanced_cron_default_interval', ADV_CRON_DEFAULT)))->fetchField();
-  //print "</ br></ br></ br><h1>QQQ " . $result . " UUU</h1>";
   return $result;
 }
 
@@ -134,15 +133,10 @@ function hosting_advanced_cron_node_load($nodes, $types) {
   foreach ($nodes as $nid => &$node) {
     if ($node->type == 'site') {
       $result = db_query("SELECT cron_interval FROM {hosting_advanced_cron} WHERE nid = :nid", array(':nid' => $node->nid))->fetchField();
-      if ($result) {
-        $this_cron_interval = array('cron_interval' => $result);
-        print "</ br></ br></ br><h1>AAA " . $result . " ZZZ</h1>";
+      if (!$result) {
+        $this_cron_interval = variable_get('hosting_advanced_cron_default_interval', ADV_CRON_DEFAULT);
       }
-      else {
-        $this_cron_interval = array('cron_interval' => variable_get('hosting_advanced_cron_default_interval', ADV_CRON_DEFAULT));
-        print "</ br></ br></ br><h1>YYY " . $result . " ZZZ</h1>";
-      }
-      return $this_cron_interval;
+      $node->cron_interval = $result;
     }
   }
 }
@@ -181,30 +175,13 @@ function hosting_advanced_cron_node_delete($node) {
  */
 function hosting_advanced_cron_node_update($node) {
   if ($node->type == "site") {
-    if ($node->cron_interval == ADV_CRON_TURNED_OFF) {
-      db_update('hosting_advanced_cron')
-        ->fields(array(
-          'cron_interval' => ADV_CRON_TURNED_OFF,
-        ))
-        ->condition('nid', $node->nid)
-        ->execute();
-    }
-    elseif ($node->cron_interval > ADV_CRON_TURNED_OFF) {
-      db_update('hosting_advanced_cron')
-        ->fields(array(
-          'cron_interval' => $node->cron_interval,
-        ))
-        ->condition('nid', $node->nid)
-        ->execute();
-    }
-    else {
-      db_update('hosting_advanced_cron')
-        ->fields(array(
-          'cron_interval' => ADV_CRON_DEFAULT,
-        ))
-        ->condition('nid', $node->nid)
-        ->execute();
-    }
+    $cron_interval = $node->cron_interval ?? ADV_CRON_DEFAULT;
+
+    // https://www.drupal.org/node/2340291
+    db_merge('hosting_advanced_cron')
+      ->key(['nid' => $node->nid])
+      ->fields(['cron_interval' => $cron_interval])
+      ->execute();
   }
 }
 
@@ -213,30 +190,13 @@ function hosting_advanced_cron_node_update($node) {
  */
 function hosting_advanced_cron_node_insert($node) {
   if ($node->type == 'site') {
-    if ($node->cron_interval == ADV_CRON_TURNED_OFF) {
-      db_insert('hosting_advanced_cron')
-        ->fields(array(
-          'nid' => $node->nid,
-          'cron_interval' => ADV_CRON_TURNED_OFF,
-        ))
-        ->execute();
-    }
-    elseif ($node->cron_interval > ADV_CRON_TURNED_OFF) {
-      db_insert('hosting_advanced_cron')
-        ->fields(array(
-          'nid' => $node->nid,
-          'cron_interval' => $node->cron_interval,
-        ))
-        ->execute();
-    }
-    else {
-      db_insert('hosting_advanced_cron')
-        ->fields(array(
-          'nid' => $node->nid,
-          'cron_interval' => ADV_CRON_DEFAULT,
-        ))
-        ->execute();
-    }
+    $cron_interval = $node->cron_interval ?? ADV_CRON_DEFAULT;
+
+    // https://www.drupal.org/node/2340291
+    db_merge('hosting_advanced_cron')
+      ->key(['nid' => $node->nid])
+      ->fields(['cron_interval' => $cron_interval])
+      ->execute();
   }
 }
 
@@ -244,9 +204,14 @@ function hosting_advanced_cron_node_insert($node) {
  * Retrieves a list of sites for which to run cron.
  */
 function hosting_advanced_cron_get_sites($limit = 5) {
-  $result = db_query('SELECT n.nid, hs.last_cron, hac.cron_interval FROM {node} n LEFT JOIN {hosting_site} hs ON n.nid = hs.nid LEFT JOIN {hosting_advanced_cron} hac ON n.nid = hac.nid WHERE n.type = :site AND hs.status = :status ORDER BY hs.last_cron ASC, n.nid ASC', array(':site' => 'site', ':status' => HOSTING_SITE_ENABLED));
+  $result = db_query('SELECT n.nid, hs.last_cron, hac.cron_interval
+    FROM {node} n
+    LEFT JOIN {hosting_site} hs ON n.nid = hs.nid
+    LEFT JOIN {hosting_advanced_cron} hac ON n.nid = hac.nid
+    WHERE n.type = :site AND hs.status = :status
+    ORDER BY hs.last_cron ASC, n.nid ASC', array(':site' => 'site', ':status' => HOSTING_SITE_ENABLED));
+
   foreach ($result as $site) {
-    //$site =  (array) $site;
     if (count($sites) <= $limit) {
       //
       // Run cron if it has never ran before for this site,
